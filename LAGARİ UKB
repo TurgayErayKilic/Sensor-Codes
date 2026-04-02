@@ -1,0 +1,266 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <Adafruit_BME280.h>
+#include <utility/imumaths.h>
+#include <SoftwareSerial.h>
+
+// =========================
+// Pin tanımları
+// =========================
+#define I2C_SDA_PIN PB7
+#define I2C_SCL_PIN PA15
+
+#define UART_TX_PIN PA0
+#define UART_RX_PIN PA1
+
+#define BUZZER_PIN PC10
+
+// =========================
+// I2C adresleri
+// =========================
+#define BNO055_ADDR_1 0x28
+#define BNO055_ADDR_2 0x29
+
+#define BME280_ADDR_1 0x76
+#define BME280_ADDR_2 0x77
+
+// =========================
+// Nesneler
+// =========================
+SoftwareSerial DebugSerial(UART_RX_PIN, UART_TX_PIN);   // RX, TX
+TwoWire I2CBus(I2C_SDA_PIN, I2C_SCL_PIN);
+
+Adafruit_BME280 bme;
+Adafruit_BNO055 bno_28(55, BNO055_ADDR_1, &I2CBus);
+Adafruit_BNO055 bno_29(56, BNO055_ADDR_2, &I2CBus);
+
+Adafruit_BNO055* bno = nullptr;
+
+// =========================
+// Yardımcı fonksiyonlar
+// =========================
+void debugPrint(const String& s)
+{
+  DebugSerial.println(s);
+}
+
+void printLine()
+{
+  DebugSerial.println("--------------------------------------------------");
+}
+
+// =========================
+// Buzzer fonksiyonları
+// =========================
+void beep(uint16_t freq, uint16_t duration_ms)
+{
+  tone(BUZZER_PIN, freq, duration_ms);
+  delay(duration_ms + 20);
+}
+
+void beepOK()
+{
+  beep(2000, 120);
+  delay(80);
+  beep(2600, 120);
+}
+
+void beepError()
+{
+  beep(800, 300);
+  delay(120);
+  beep(800, 300);
+}
+
+void beepStartup()
+{
+  beep(1200, 100);
+  delay(60);
+  beep(1600, 100);
+  delay(60);
+  beep(2200, 150);
+}
+
+// =========================
+// Sensör init
+// =========================
+bool initBME280()
+{
+  if (bme.begin(BME280_ADDR_1, &I2CBus)) {
+    debugPrint("BME280 bulundu. Adres: 0x76");
+    return true;
+  }
+
+  if (bme.begin(BME280_ADDR_2, &I2CBus)) {
+    debugPrint("BME280 bulundu. Adres: 0x77");
+    return true;
+  }
+
+  debugPrint("BME280 bulunamadi!");
+  return false;
+}
+
+bool initBNO055()
+{
+  if (bno_28.begin()) {
+    bno = &bno_28;
+    debugPrint("BNO055 bulundu. Adres: 0x28");
+    return true;
+  }
+
+  if (bno_29.begin()) {
+    bno = &bno_29;
+    debugPrint("BNO055 bulundu. Adres: 0x29");
+    return true;
+  }
+
+  debugPrint("BNO055 bulunamadi!");
+  return false;
+}
+
+// =========================
+// Veri yazdırma
+// =========================
+void printBMEData()
+{
+  float temperature = bme.readTemperature();
+  float pressure_hPa = bme.readPressure() / 100.0f;
+  float humidity = bme.readHumidity();
+  float altitude = bme.readAltitude(1013.25f);
+
+  DebugSerial.print("BME280 -> ");
+  DebugSerial.print("Sicaklik: ");
+  DebugSerial.print(temperature, 2);
+  DebugSerial.print(" C, ");
+
+  DebugSerial.print("Basinc: ");
+  DebugSerial.print(pressure_hPa, 2);
+  DebugSerial.print(" hPa, ");
+
+  DebugSerial.print("Nem: ");
+  DebugSerial.print(humidity, 2);
+  DebugSerial.print(" %, ");
+
+  DebugSerial.print("Yakl. Irtifa: ");
+  DebugSerial.print(altitude, 2);
+  DebugSerial.println(" m");
+}
+
+void printBNOData()
+{
+  if (bno == nullptr) {
+    DebugSerial.println("BNO055 aktif degil.");
+    return;
+  }
+
+  sensors_event_t orientationData, angVelocityData, linearAccelData;
+  bno->getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  bno->getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE);
+  bno->getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+  uint8_t system, gyro, accel, mag;
+  bno->getCalibration(&system, &gyro, &accel, &mag);
+
+  DebugSerial.print("BNO055 -> ");
+  DebugSerial.print("Yaw: ");
+  DebugSerial.print(orientationData.orientation.x, 2);
+  DebugSerial.print(" deg, ");
+
+  DebugSerial.print("Pitch: ");
+  DebugSerial.print(orientationData.orientation.y, 2);
+  DebugSerial.print(" deg, ");
+
+  DebugSerial.print("Roll: ");
+  DebugSerial.print(orientationData.orientation.z, 2);
+  DebugSerial.print(" deg, ");
+
+  DebugSerial.print("Gx: ");
+  DebugSerial.print(angVelocityData.gyro.x, 3);
+  DebugSerial.print(" rad/s, ");
+
+  DebugSerial.print("Gy: ");
+  DebugSerial.print(angVelocityData.gyro.y, 3);
+  DebugSerial.print(" rad/s, ");
+
+  DebugSerial.print("Gz: ");
+  DebugSerial.print(angVelocityData.gyro.z, 3);
+  DebugSerial.print(" rad/s, ");
+
+  DebugSerial.print("Ax: ");
+  DebugSerial.print(linearAccelData.acceleration.x, 3);
+  DebugSerial.print(" m/s^2, ");
+
+  DebugSerial.print("Ay: ");
+  DebugSerial.print(linearAccelData.acceleration.y, 3);
+  DebugSerial.print(" m/s^2, ");
+
+  DebugSerial.print("Az: ");
+  DebugSerial.print(linearAccelData.acceleration.z, 3);
+  DebugSerial.println(" m/s^2");
+
+  DebugSerial.print("Kalibrasyon -> ");
+  DebugSerial.print("SYS:");
+  DebugSerial.print(system);
+  DebugSerial.print(" G:");
+  DebugSerial.print(gyro);
+  DebugSerial.print(" A:");
+  DebugSerial.print(accel);
+  DebugSerial.print(" M:");
+  DebugSerial.println(mag);
+}
+
+void setup()
+{
+  pinMode(BUZZER_PIN, OUTPUT);
+  noTone(BUZZER_PIN);
+
+  DebugSerial.begin(115200);
+  delay(500);
+
+  printLine();
+  debugPrint("STM32G431 + BNO055 + BME280 baslatiliyor...");
+
+  beepStartup();
+
+  I2CBus.begin();
+  I2CBus.setClock(100000);
+
+  debugPrint("I2C baslatildi. SDA=PB7, SCL=PA15");
+
+  bool bme_ok = initBME280();
+  bool bno_ok = initBNO055();
+
+  if (bno_ok && bno != nullptr) {
+    delay(1000);
+    bno->setExtCrystalUse(true);
+    debugPrint("BNO055 harici kristal aktif edildi.");
+  }
+
+  if (bme_ok && bno_ok) {
+    debugPrint("Tum sensorler hazir.");
+    beepOK();
+  } else {
+    if (!bme_ok) {
+      debugPrint("BME280 baglanti / adres / lehim kontrol et.");
+    }
+
+    if (!bno_ok) {
+      debugPrint("BNO055 baglanti / adres / PS0-PS1 / reset hatlarini kontrol et.");
+    }
+
+    beepError();
+  }
+
+  printLine();
+}
+
+void loop()
+{
+  printBMEData();
+  printBNOData();
+  printLine();
+
+  delay(1000);
+}
